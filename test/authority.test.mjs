@@ -18,7 +18,10 @@ process.env.GITHUB_RUN_ID = "12345";
 process.env.GITHUB_RUN_ATTEMPT = "1";
 
 globalThis.fetch = async (url, options) => {
-  assert.equal(url, `https://api.vercel.com/v13/deployments/${deploymentId}`);
+  assert.equal(
+    url,
+    `https://api.vercel.com/v13/deployments/${deploymentId}?teamId=team_6AFb0Io4tNAZE5RQPtdLOEWv`,
+  );
   assert.equal(options.headers.Authorization, "Bearer unit-secret");
   return {
     ok: true,
