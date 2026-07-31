@@ -81,7 +81,10 @@ test("workflow is manual-only, pinned, and publishes a parentless tree", async (
   const workflow = await readFile(resolve(".github/workflows/verify-vercel.yml"), "utf8");
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /pull_request(?:_target)?:|\bpush:/);
+  assert.match(workflow, /permissions:\n  contents: read\n  id-token: write\n  attestations: write/);
+  assert.match(workflow, /environment: production-authority/);
   assert.match(workflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
+  assert.match(workflow, /token: \$\{\{ secrets\.AUTHORITY_GITHUB_TOKEN \}\}/);
   assert.match(workflow, /actions\/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be/);
   assert.match(workflow, /git read-tree --empty/);
   assert.match(workflow, /git commit-tree "\$tree"/);
