@@ -5,13 +5,14 @@ const exactSha = process.env.CANDIDATE_SHA ?? "";
 const deploymentId = process.env.DEPLOYMENT_ID ?? "";
 const expectedHostname = process.env.EXPECTED_HOSTNAME ?? "";
 const token = process.env.VERCEL_TOKEN ?? "";
+const teamId = "team_6AFb0Io4tNAZE5RQPtdLOEWv";
 
 if (!/^[a-f0-9]{40}$/.test(exactSha)) throw new Error("candidate SHA must be exact");
 if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) throw new Error("deployment ID is invalid");
 if (!/^[a-z0-9-]+\.vercel\.app$/.test(expectedHostname)) throw new Error("hostname is invalid");
 if (!token) throw new Error("VERCEL_TOKEN is unavailable");
 
-const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}`, {
+const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}?teamId=${encodeURIComponent(teamId)}`, {
   headers: { Authorization: `Bearer ${token}` },
 });
 if (!response.ok) throw new Error(`Vercel API rejected deployment readback: ${response.status}`);
