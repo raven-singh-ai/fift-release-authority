@@ -18,16 +18,19 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
   attestations: write
 
 jobs:
   attest:
     runs-on: ubuntu-latest
+    environment: production-authority
     steps:
       - name: Checkout protected authority source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          token: ${{ secrets.AUTHORITY_GITHUB_TOKEN }}
 
       - name: Authenticate Vercel and create bounded evidence
         env:

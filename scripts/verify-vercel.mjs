@@ -5,13 +5,18 @@ const exactSha = process.env.CANDIDATE_SHA ?? "";
 const deploymentId = process.env.DEPLOYMENT_ID ?? "";
 const expectedHostname = process.env.EXPECTED_HOSTNAME ?? "";
 const token = process.env.VERCEL_TOKEN ?? "";
+const teamId = "team_6AFb0Io4tNAZE5RQPtdLOEWv";
+const teamName = "Fift Studio";
+const teamSlug = "fift";
+const projectId = "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr";
+const projectName = "fift-trading-portal";
 
 if (!/^[a-f0-9]{40}$/.test(exactSha)) throw new Error("candidate SHA must be exact");
 if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) throw new Error("deployment ID is invalid");
 if (!/^[a-z0-9-]+\.vercel\.app$/.test(expectedHostname)) throw new Error("hostname is invalid");
 if (!token) throw new Error("VERCEL_TOKEN is unavailable");
 
-const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}`, {
+const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}?teamId=${encodeURIComponent(teamId)}`, {
   headers: { Authorization: `Bearer ${token}` },
 });
 if (!response.ok) throw new Error(`Vercel API rejected deployment readback: ${response.status}`);
@@ -20,6 +25,13 @@ const raw = await response.json();
 if (raw?.id !== deploymentId
   || raw?.readyState !== "READY"
   || raw?.url !== expectedHostname
+  || raw?.ownerId !== teamId
+  || raw?.team?.id !== teamId
+  || raw?.team?.name !== teamName
+  || raw?.team?.slug !== teamSlug
+  || raw?.projectId !== projectId
+  || raw?.project?.id !== projectId
+  || raw?.project?.name !== projectName
   || raw?.meta?.gitCommitSha !== exactSha) {
   throw new Error("Vercel provider metadata is not bound to the requested exact SHA");
 }
@@ -32,6 +44,8 @@ const evidence = {
     id: raw.id,
     readyState: raw.readyState,
     url: raw.url,
+    team: { id: raw.team.id, name: raw.team.name, slug: raw.team.slug },
+    project: { id: raw.projectId, name: raw.project.name },
     meta: { gitCommitSha: raw.meta.gitCommitSha },
   },
   provenance: {
