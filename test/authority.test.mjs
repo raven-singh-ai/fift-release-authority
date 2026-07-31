@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import test from "node:test";
 import { resolve } from "node:path";
 
 const candidateSha = "8".repeat(40);
 const deploymentId = "dpl_Trusted123";
 const hostname = "fift-preview.vercel.app";
+const teamId = "team_6AFb0Io4tNAZE5RQPtdLOEWv";
 const projectId = "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr";
 
 process.env.CANDIDATE_SHA = candidateSha;
@@ -31,6 +32,8 @@ globalThis.fetch = async (url, options) => {
         id: deploymentId,
         readyState: "READY",
         url: hostname,
+        ownerId: teamId,
+        team: { id: teamId, name: "Fift Studio", slug: "fift", private: "drop-me" },
         projectId,
         project: { id: projectId, name: "fift-trading-portal", private: "drop-me" },
         meta: { gitCommitSha: candidateSha, privateProviderValue: "drop-me" },
@@ -50,6 +53,7 @@ test("projects only bounded provider fields into attested evidence", async () =>
     id: deploymentId,
     readyState: "READY",
     url: hostname,
+    team: { id: teamId, name: "Fift Studio", slug: "fift" },
     project: { id: projectId, name: "fift-trading-portal" },
     meta: { gitCommitSha: candidateSha },
   });
@@ -57,25 +61,65 @@ test("projects only bounded provider fields into attested evidence", async () =>
   assert.equal(bytes.includes("drop-me"), false);
 });
 
-test("rejects a deployment from another project in the trusted team", async () => {
-  globalThis.fetch = async () => ({
-    ok: true,
-    async json() {
-      return {
-        id: deploymentId,
-        readyState: "READY",
-        url: hostname,
-        projectId: "prj_NOT_FIFT",
-        project: { id: "prj_NOT_FIFT", name: "lookalike" },
-        meta: { gitCommitSha: candidateSha },
-      };
-    },
+function validProviderPayload() {
+  return {
+    id: deploymentId,
+    readyState: "READY",
+    url: hostname,
+    ownerId: teamId,
+    team: { id: teamId, name: "Fift Studio", slug: "fift" },
+    projectId,
+    project: { id: projectId, name: "fift-trading-portal" },
+    meta: { gitCommitSha: candidateSha },
+  };
+}
+
+const hostileProviderMutations = [
+  ["wrong deployment ID", (raw) => { raw.id = "dpl_Wrong"; }],
+  ["wrong readiness", (raw) => { raw.readyState = "BUILDING"; }],
+  ["wrong hostname", (raw) => { raw.url = "lookalike.vercel.app"; }],
+  ["wrong owner team", (raw) => { raw.ownerId = "team_WRONG"; }],
+  ["wrong nested team ID", (raw) => { raw.team.id = "team_WRONG"; }],
+  ["wrong team name", (raw) => { raw.team.name = "Lookalike"; }],
+  ["wrong team slug", (raw) => { raw.team.slug = "lookalike"; }],
+  ["wrong root project ID", (raw) => { raw.projectId = "prj_WRONG"; }],
+  ["wrong nested project ID", (raw) => { raw.project.id = "prj_WRONG"; }],
+  ["wrong project name", (raw) => { raw.project.name = "lookalike"; }],
+  ["wrong candidate SHA", (raw) => { raw.meta.gitCommitSha = "7".repeat(40); }],
+  ["missing team metadata", (raw) => { delete raw.team; }],
+  ["missing project metadata", (raw) => { delete raw.project; }],
+  ["missing Git metadata", (raw) => { delete raw.meta; }],
+];
+
+for (const [label, mutate] of hostileProviderMutations) {
+  test(`rejects provider metadata with ${label}`, async () => {
+    const raw = validProviderPayload();
+    mutate(raw);
+    globalThis.fetch = async () => ({ ok: true, async json() { return raw; } });
+    await rm(resolve("out"), { recursive: true, force: true });
+    await assert.rejects(
+      import(`../scripts/verify-vercel.mjs?hostile=${encodeURIComponent(label)}-${Date.now()}`),
+      /not bound to the requested exact SHA/,
+    );
+    await assert.rejects(access(resolve("out", `vercel-${candidateSha}.json`)), { code: "ENOENT" });
   });
-  await assert.rejects(
-    import(`../scripts/verify-vercel.mjs?wrong-project=${Date.now()}`),
-    /not bound to the requested exact SHA/,
-  );
-});
+}
+
+for (const [label, fetchResult, error] of [
+  ["non-OK provider response", { ok: false, status: 403, async json() { return {}; } }, /rejected deployment readback: 403/],
+  ["null provider JSON", { ok: true, async json() { return null; } }, /not bound to the requested exact SHA/],
+  ["malformed provider JSON", { ok: true, async json() { throw new SyntaxError("malformed JSON"); } }, /malformed JSON/],
+]) {
+  test(`rejects ${label} with zero evidence write`, async () => {
+    globalThis.fetch = async () => fetchResult;
+    await rm(resolve("out"), { recursive: true, force: true });
+    await assert.rejects(
+      import(`../scripts/verify-vercel.mjs?response=${encodeURIComponent(label)}-${Date.now()}`),
+      error,
+    );
+    await assert.rejects(access(resolve("out", `vercel-${candidateSha}.json`)), { code: "ENOENT" });
+  });
+}
 
 test("workflow is manual-only, pinned, and publishes a parentless tree", async () => {
   const workflow = await readFile(resolve(".github/workflows/verify-vercel.yml"), "utf8");
