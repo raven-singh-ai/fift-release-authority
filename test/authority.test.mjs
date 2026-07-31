@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 const candidateSha = "8".repeat(40);
 const deploymentId = "dpl_Trusted123";
 const hostname = "fift-preview.vercel.app";
+const projectId = "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr";
 
 process.env.CANDIDATE_SHA = candidateSha;
 process.env.DEPLOYMENT_ID = deploymentId;
@@ -30,9 +31,10 @@ globalThis.fetch = async (url, options) => {
         id: deploymentId,
         readyState: "READY",
         url: hostname,
+        projectId,
+        project: { id: projectId, name: "fift-trading-portal", private: "drop-me" },
         meta: { gitCommitSha: candidateSha, privateProviderValue: "drop-me" },
         env: { SECRET: "drop-me" },
-        project: { private: "drop-me" },
       };
     },
   };
@@ -48,10 +50,31 @@ test("projects only bounded provider fields into attested evidence", async () =>
     id: deploymentId,
     readyState: "READY",
     url: hostname,
+    project: { id: projectId, name: "fift-trading-portal" },
     meta: { gitCommitSha: candidateSha },
   });
   assert.equal(bytes.includes("unit-secret"), false);
   assert.equal(bytes.includes("drop-me"), false);
+});
+
+test("rejects a deployment from another project in the trusted team", async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        id: deploymentId,
+        readyState: "READY",
+        url: hostname,
+        projectId: "prj_NOT_FIFT",
+        project: { id: "prj_NOT_FIFT", name: "lookalike" },
+        meta: { gitCommitSha: candidateSha },
+      };
+    },
+  });
+  await assert.rejects(
+    import(`../scripts/verify-vercel.mjs?wrong-project=${Date.now()}`),
+    /not bound to the requested exact SHA/,
+  );
 });
 
 test("workflow is manual-only, pinned, and publishes a parentless tree", async () => {

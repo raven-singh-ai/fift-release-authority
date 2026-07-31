@@ -6,6 +6,8 @@ const deploymentId = process.env.DEPLOYMENT_ID ?? "";
 const expectedHostname = process.env.EXPECTED_HOSTNAME ?? "";
 const token = process.env.VERCEL_TOKEN ?? "";
 const teamId = "team_6AFb0Io4tNAZE5RQPtdLOEWv";
+const projectId = "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr";
+const projectName = "fift-trading-portal";
 
 if (!/^[a-f0-9]{40}$/.test(exactSha)) throw new Error("candidate SHA must be exact");
 if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) throw new Error("deployment ID is invalid");
@@ -21,6 +23,9 @@ const raw = await response.json();
 if (raw?.id !== deploymentId
   || raw?.readyState !== "READY"
   || raw?.url !== expectedHostname
+  || raw?.projectId !== projectId
+  || raw?.project?.id !== projectId
+  || raw?.project?.name !== projectName
   || raw?.meta?.gitCommitSha !== exactSha) {
   throw new Error("Vercel provider metadata is not bound to the requested exact SHA");
 }
@@ -33,6 +38,7 @@ const evidence = {
     id: raw.id,
     readyState: raw.readyState,
     url: raw.url,
+    project: { id: raw.projectId, name: raw.project.name },
     meta: { gitCommitSha: raw.meta.gitCommitSha },
   },
   provenance: {
