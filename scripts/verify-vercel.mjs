@@ -22,6 +22,25 @@ const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymen
 if (!response.ok) throw new Error(`Vercel API rejected deployment readback: ${response.status}`);
 const raw = await response.json();
 
+// Vercel names the commit binding differently depending on how the deployment
+// was created, and the two shapes are disjoint:
+//
+//   CLI deploy          meta.gitCommitSha        (no gitSource)
+//   GitHub integration  meta.githubCommitSha  +  gitSource.sha
+//
+// Reading only meta.gitCommitSha therefore rejected EVERY deployment the
+// GitHub integration creates — which is every pull-request Preview — with
+// "not bound to the requested exact SHA", no matter how correct the token and
+// the SHA were. Only manually CLI-deployed builds could ever produce a receipt.
+//
+// So bind against every commit field the payload actually carries: require at
+// least one, and require all present ones to agree. This is strictly stronger
+// than the single-field check it replaces — a payload carrying two bindings
+// must now have both correct, and a payload carrying none is rejected outright
+// rather than silently compared against undefined.
+const shaBindings = [raw?.meta?.gitCommitSha, raw?.meta?.githubCommitSha, raw?.gitSource?.sha]
+  .filter((value) => typeof value === "string" && value.length > 0);
+
 if (raw?.id !== deploymentId
   || raw?.readyState !== "READY"
   || raw?.url !== expectedHostname
@@ -32,7 +51,8 @@ if (raw?.id !== deploymentId
   || raw?.projectId !== projectId
   || raw?.project?.id !== projectId
   || raw?.project?.name !== projectName
-  || raw?.meta?.gitCommitSha !== exactSha) {
+  || shaBindings.length === 0
+  || shaBindings.some((value) => value !== exactSha)) {
   throw new Error("Vercel provider metadata is not bound to the requested exact SHA");
 }
 
