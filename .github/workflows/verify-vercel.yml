@@ -46,13 +46,14 @@ jobs:
           subject-path: out/vercel-${{ inputs.candidate_sha }}.json
           show-summary: true
 
-      - name: Publish identical bytes at a parentless evidence commit
+      - name: Publish identical bytes at a retained parentless evidence commit
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
           evidence="out/vercel-${CANDIDATE_SHA}.json"
           evidence_path="vercel/${CANDIDATE_SHA}.json"
+          retained_ref="refs/heads/evidence-vercel/${CANDIDATE_SHA}/run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           blob="$(git hash-object -w "$evidence")"
           index="$(mktemp)"
           rm -f "$index"
@@ -65,6 +66,16 @@ jobs:
           export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
           export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
           commit="$(printf 'Vercel authority evidence for %s\n' "$CANDIDATE_SHA" | git commit-tree "$tree")"
+
+          # Every authority run gets a distinct retained ref. The proof commit
+          # remains parentless and exact-tree-verifiable, but a concurrent run
+          # can no longer orphan it by moving the legacy shared evidence ref.
+          git push origin "$commit:$retained_ref"
+          test "$(git ls-remote origin "$retained_ref" | cut -f1)" = "$commit"
+
+          # Compatibility bridge for consumers still pinned to the previous
+          # ceremony. New consumers authenticate the declared commit itself and
+          # use the retained ref only to keep that object reachable.
           git push --force origin "$commit:refs/heads/evidence"
           test "$(git ls-remote origin refs/heads/evidence | cut -f1)" = "$commit"
-          printf '### Evidence commit\n`%s`\n' "$commit" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Evidence commit\n`%s`\n\n### Retained evidence ref\n`%s`\n' "$commit" "$retained_ref" >> "$GITHUB_STEP_SUMMARY"

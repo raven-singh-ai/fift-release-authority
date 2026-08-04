@@ -61,6 +61,25 @@ test("projects only bounded provider fields into attested evidence", async () =>
   assert.equal(bytes.includes("drop-me"), false);
 });
 
+test("accepts GitHub-integration SHA fields and emits the canonical binding", async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      const raw = validProviderPayload();
+      delete raw.meta.gitCommitSha;
+      raw.meta.githubCommitSha = candidateSha;
+      raw.gitSource = { sha: candidateSha, ref: "feature", private: "drop-me" };
+      return raw;
+    },
+  });
+  await rm(resolve("out"), { recursive: true, force: true });
+  await import(`../scripts/verify-vercel.mjs?github-integration=${Date.now()}`);
+  const bytes = await readFile(resolve("out", `vercel-${candidateSha}.json`), "utf8");
+  const evidence = JSON.parse(bytes);
+  assert.deepEqual(evidence.deployment.meta, { gitCommitSha: candidateSha });
+  assert.equal(bytes.includes("private"), false);
+});
+
 function validProviderPayload() {
   return {
     id: deploymentId,
@@ -86,6 +105,8 @@ const hostileProviderMutations = [
   ["wrong nested project ID", (raw) => { raw.project.id = "prj_WRONG"; }],
   ["wrong project name", (raw) => { raw.project.name = "lookalike"; }],
   ["wrong candidate SHA", (raw) => { raw.meta.gitCommitSha = "7".repeat(40); }],
+  ["conflicting GitHub SHA", (raw) => { raw.meta.githubCommitSha = "7".repeat(40); }],
+  ["conflicting gitSource SHA", (raw) => { raw.gitSource = { sha: "7".repeat(40) }; }],
   ["missing team metadata", (raw) => { delete raw.team; }],
   ["missing project metadata", (raw) => { delete raw.project; }],
   ["missing Git metadata", (raw) => { delete raw.meta; }],
@@ -121,7 +142,7 @@ for (const [label, fetchResult, error] of [
   });
 }
 
-test("workflow is manual-only, pinned, and publishes a parentless tree", async () => {
+test("workflow is manual-only, pinned, and retains every parentless proof", async () => {
   const workflow = await readFile(resolve(".github/workflows/verify-vercel.yml"), "utf8");
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /pull_request(?:_target)?:|\bpush:/);
@@ -133,4 +154,8 @@ test("workflow is manual-only, pinned, and publishes a parentless tree", async (
   assert.match(workflow, /git read-tree --empty/);
   assert.match(workflow, /git commit-tree "\$tree"/);
   assert.doesNotMatch(workflow, /git commit-tree[^\n]* -p /);
+  assert.match(workflow, /refs\/heads\/evidence-vercel\/\$\{CANDIDATE_SHA\}\/run-\$\{GITHUB_RUN_ID\}-attempt-\$\{GITHUB_RUN_ATTEMPT\}/);
+  assert.match(workflow, /git push origin "\$commit:\$retained_ref"/);
+  assert.match(workflow, /git push --force origin "\$commit:refs\/heads\/evidence"/);
+  assert.ok(workflow.indexOf("$commit:$retained_ref") < workflow.indexOf("$commit:refs/heads/evidence"));
 });
