@@ -49,7 +49,8 @@ process.stdin.on("end", () => {
     || proof.provenance.repository !== authority
     || proof.provenance.workflowRef !== workflowRef
     || !/^[a-f0-9]{40}$/.test(proof.provenance.workflowSha)
-    || !/^[1-9][0-9]*$/.test(String(proof.provenance.runId))
+    || typeof proof.provenance.runId !== "string"
+    || !/^[1-9][0-9]*$/.test(proof.provenance.runId)
     || BigInt(proof.provenance.runId) > maxRunId
     || !Number.isSafeInteger(proof.provenance.runAttempt)
     || proof.provenance.runAttempt < 1
