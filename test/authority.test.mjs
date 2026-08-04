@@ -166,6 +166,33 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
   assert.doesNotMatch(publisher, /git push --force origin "\$commit:\$legacy_ref"/);
 });
 
+test("canonical validator rejects numeric run IDs instead of coercing them", () => {
+  const proof = {
+    schemaVersion: 1,
+    authority: "raven-singh-ai/fift-release-authority",
+    candidateSha,
+    deployment: {
+      id: deploymentId,
+      readyState: "READY",
+      url: hostname,
+      team: { id: teamId, name: "Fift Studio", slug: "fift" },
+      project: { id: projectId, name: "fift-trading-portal" },
+      meta: { gitCommitSha: candidateSha },
+    },
+    provenance: {
+      repository: "raven-singh-ai/fift-release-authority",
+      workflowRef: "raven-singh-ai/fift-release-authority/.github/workflows/verify-vercel.yml@refs/heads/main",
+      workflowSha: "9".repeat(40),
+      runId: 9007199254740992,
+      runAttempt: 1,
+    },
+  };
+  assert.throws(() => execFileSync("node", [resolve("scripts/validate-vercel-evidence.mjs"), candidateSha], {
+    input: `${JSON.stringify(proof)}\n`,
+    stdio: ["pipe", "pipe", "pipe"],
+  }));
+});
+
 test("legacy publisher rejects run identities that overflow either arithmetic domain", () => {
   for (const [runId, attempt] of [
     ["9223372036854775808", "1"],
@@ -265,6 +292,27 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
     await assert.rejects(publish(rejectedSha, 400, 1));
     assert.equal(run(["ls-remote", "--refs", "origin", "refs/heads/evidence"]).split("\t")[0], malformedCommit);
     assert.equal(run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${rejectedSha}/run-400-attempt-1`]).length > 0, true);
+
+    const rejectedRetained = run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${rejectedSha}/run-400-attempt-1`]).split("\t")[0];
+    const rejectedTree = run(["rev-parse", `${rejectedRetained}^{tree}`]);
+    const parentedCommit = run(["commit-tree", rejectedTree, "-p", malformedCommit], { env: identityEnv, input: "parented\n" });
+    run(["push", "--force", "origin", `${parentedCommit}:refs/heads/evidence`]);
+    const parentRejectedSha = "1".repeat(40);
+    await assert.rejects(publish(parentRejectedSha, 500, 1));
+    assert.equal(run(["ls-remote", "--refs", "origin", "refs/heads/evidence"]).split("\t")[0], parentedCommit);
+
+    const parentRejectedRetained = run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${parentRejectedSha}/run-500-attempt-1`]).split("\t")[0];
+    const extraIndex = resolve(root, "extra.index");
+    const extraIndexEnv = { ...process.env, GIT_INDEX_FILE: extraIndex };
+    run(["read-tree", `${parentRejectedRetained}^{tree}`], { env: extraIndexEnv });
+    const extraBlob = run(["hash-object", "-w", "--stdin"], { input: "extra\n" });
+    run(["update-index", "--add", "--cacheinfo", `100644,${extraBlob},extra.txt`], { env: extraIndexEnv });
+    const extraTree = run(["write-tree"], { env: extraIndexEnv });
+    const extraCommit = run(["commit-tree", extraTree], { env: identityEnv, input: "extra tree\n" });
+    run(["push", "--force", "origin", `${extraCommit}:refs/heads/evidence`]);
+    const extraRejectedSha = "a".repeat(40);
+    await assert.rejects(publish(extraRejectedSha, 600, 1));
+    assert.equal(run(["ls-remote", "--refs", "origin", "refs/heads/evidence"]).split("\t")[0], extraCommit);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

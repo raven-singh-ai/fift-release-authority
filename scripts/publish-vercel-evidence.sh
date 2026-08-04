@@ -62,19 +62,19 @@ test "$(git ls-remote --refs origin "$retained_ref" | cut -f1)" = "$commit"
 read_run_tuple() {
   local current_commit="$1"
   local commit_line top path entry candidate
-  commit_line="$(git rev-list --parents -n 1 "$current_commit")"
-  [[ "$commit_line" = "$current_commit" ]]
+  commit_line="$(git rev-list --parents -n 1 "$current_commit")" || return 1
+  [[ "$commit_line" = "$current_commit" ]] || return 1
 
-  top="$(git ls-tree --name-only "$current_commit")"
-  [[ "$top" = "vercel" ]]
-  [[ "$(git cat-file -t "$current_commit:vercel")" = "tree" ]]
+  top="$(git ls-tree --name-only "$current_commit")" || return 1
+  [[ "$top" = "vercel" ]] || return 1
+  [[ "$(git cat-file -t "$current_commit:vercel")" = "tree" ]] || return 1
 
-  path="$(git ls-tree --name-only "$current_commit:vercel")"
-  test -n "$path"
-  [[ "$path" != *$'\n'* ]]
-  [[ "$path" =~ ^[a-f0-9]{40}\.json$ ]]
-  entry="$(git ls-tree "$current_commit:vercel")"
-  [[ "$entry" =~ ^100644\ blob\ [a-f0-9]{40}$'\t'[a-f0-9]{40}\.json$ ]]
+  path="$(git ls-tree --name-only "$current_commit:vercel")" || return 1
+  test -n "$path" || return 1
+  [[ "$path" != *$'\n'* ]] || return 1
+  [[ "$path" =~ ^[a-f0-9]{40}\.json$ ]] || return 1
+  entry="$(git ls-tree "$current_commit:vercel")" || return 1
+  [[ "$entry" =~ ^100644\ blob\ [a-f0-9]{40}$'\t'[a-f0-9]{40}\.json$ ]] || return 1
   candidate="${path%.json}"
 
   git show "$current_commit:vercel/$path" | node "$script_dir/validate-vercel-evidence.mjs" "$candidate"
@@ -94,7 +94,12 @@ for _ in 1 2 3 4 5 6 7 8; do
   if [[ "$(git rev-parse FETCH_HEAD)" != "$current" ]]; then
     continue
   fi
-  read -r current_run current_attempt < <(read_run_tuple "$current")
+  local_tuple=""
+  if ! local_tuple="$(read_run_tuple "$current")"; then
+    echo "legacy evidence ref is not a canonical parentless authority proof" >&2
+    exit 1
+  fi
+  read -r current_run current_attempt <<< "$local_tuple"
 
   if (( current_run > GITHUB_RUN_ID || (current_run == GITHUB_RUN_ID && current_attempt >= GITHUB_RUN_ATTEMPT) )); then
     printf 'legacy_evidence_ref_retained_newer=%s run=%s attempt=%s\n' "$current" "$current_run" "$current_attempt"
