@@ -13,6 +13,12 @@ if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ || ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0
   echo "run identity must be positive integers" >&2
   exit 1
 fi
+node -e '
+  const max = 9223372036854775807n;
+  const runId = BigInt(process.env.GITHUB_RUN_ID);
+  const attempt = BigInt(process.env.GITHUB_RUN_ATTEMPT);
+  if (runId > max || attempt > max) process.exit(1);
+' || { echo "run identity exceeds supported integer range" >&2; exit 1; }
 
 evidence="out/vercel-${CANDIDATE_SHA}.json"
 evidence_path="vercel/${CANDIDATE_SHA}.json"
@@ -66,7 +72,8 @@ read_run_tuple() {
       const proof = JSON.parse(body);
       const runId = proof?.provenance?.runId;
       const attempt = proof?.provenance?.runAttempt;
-      if (!/^[1-9][0-9]*$/.test(String(runId)) || !Number.isSafeInteger(attempt) || attempt < 1) process.exit(1);
+      const validRunId = /^[1-9][0-9]*$/.test(String(runId)) && BigInt(runId) <= 9223372036854775807n;
+      if (!validRunId || !Number.isSafeInteger(attempt) || attempt < 1) process.exit(1);
       process.stdout.write(`${runId} ${attempt}\n`);
     });
   '
@@ -76,13 +83,16 @@ for _ in 1 2 3 4 5 6 7 8; do
   current="$(git ls-remote --refs origin "$legacy_ref" | cut -f1)"
   if [[ -z "$current" ]]; then
     if git push --force-with-lease="$legacy_ref:" origin "$commit:$legacy_ref"; then
-      continue
+      finish
+      exit 0
     fi
     continue
   fi
 
   git fetch --no-tags origin "$legacy_ref" >/dev/null
-  test "$(git rev-parse FETCH_HEAD)" = "$current"
+  if [[ "$(git rev-parse FETCH_HEAD)" != "$current" ]]; then
+    continue
+  fi
   read -r current_run current_attempt < <(read_run_tuple "$current")
 
   if (( current_run > GITHUB_RUN_ID || (current_run == GITHUB_RUN_ID && current_attempt >= GITHUB_RUN_ATTEMPT) )); then
@@ -92,7 +102,8 @@ for _ in 1 2 3 4 5 6 7 8; do
   fi
 
   if git push --force-with-lease="$legacy_ref:$current" origin "$commit:$legacy_ref"; then
-    continue
+    finish
+    exit 0
   fi
 done
 
