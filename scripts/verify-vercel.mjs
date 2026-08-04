@@ -66,7 +66,10 @@ const evidence = {
     url: raw.url,
     team: { id: raw.team.id, name: raw.team.name, slug: raw.team.slug },
     project: { id: raw.projectId, name: raw.project.name },
-    meta: { gitCommitSha: raw.meta.gitCommitSha },
+    // Canonicalize provider-specific bindings into the bounded field consumed
+    // by the portal. Every present provider field was required above to equal
+    // exactSha, so this cannot conceal disagreement.
+    meta: { gitCommitSha: exactSha },
   },
   provenance: {
     repository: process.env.GITHUB_REPOSITORY,
