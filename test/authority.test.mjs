@@ -161,7 +161,21 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
   assert.match(publisher, /refs\/heads\/evidence-vercel\/\$\{CANDIDATE_SHA\}\/run-\$\{GITHUB_RUN_ID\}-attempt-\$\{GITHUB_RUN_ATTEMPT\}/);
   assert.match(publisher, /git push origin "\$commit:\$retained_ref"/);
   assert.match(publisher, /--force-with-lease="\$legacy_ref:\$current"/);
+  assert.match(publisher, /if \[\[ "\$\(git rev-parse FETCH_HEAD\)" != "\$current" \]\]; then\n    continue/);
+  assert.match(publisher, /if git push --force-with-lease="\$legacy_ref:\$current"[^]*?finish\n    exit 0/);
   assert.doesNotMatch(publisher, /git push --force origin "\$commit:\$legacy_ref"/);
+});
+
+test("legacy publisher rejects run identities that overflow Bash arithmetic", () => {
+  assert.throws(() => execFileSync("bash", [resolve("scripts/publish-vercel-evidence.sh")], {
+    env: {
+      ...process.env,
+      CANDIDATE_SHA: "4".repeat(40),
+      GITHUB_RUN_ID: "9223372036854775808",
+      GITHUB_RUN_ATTEMPT: "1",
+    },
+    stdio: "pipe",
+  }));
 });
 
 test("legacy compatibility ref cannot roll back when an older run finishes late", async () => {
