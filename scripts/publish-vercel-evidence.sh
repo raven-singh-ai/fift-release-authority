@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
 : "${CANDIDATE_SHA:?CANDIDATE_SHA is required}"
 : "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required}"
 : "${GITHUB_RUN_ATTEMPT:?GITHUB_RUN_ATTEMPT is required}"
@@ -14,10 +16,10 @@ if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ || ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0
   exit 1
 fi
 node -e '
-  const max = 9223372036854775807n;
+  const maxRunId = 9223372036854775807n;
   const runId = BigInt(process.env.GITHUB_RUN_ID);
   const attempt = BigInt(process.env.GITHUB_RUN_ATTEMPT);
-  if (runId > max || attempt > max) process.exit(1);
+  if (runId > maxRunId || attempt > BigInt(Number.MAX_SAFE_INTEGER)) process.exit(1);
 ' || { echo "run identity exceeds supported integer range" >&2; exit 1; }
 
 evidence="out/vercel-${CANDIDATE_SHA}.json"
@@ -26,6 +28,7 @@ retained_ref="refs/heads/evidence-vercel/${CANDIDATE_SHA}/run-${GITHUB_RUN_ID}-a
 legacy_ref="refs/heads/evidence"
 
 test -f "$evidence"
+node "$script_dir/validate-vercel-evidence.mjs" "$CANDIDATE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" < "$evidence" >/dev/null
 
 blob="$(git hash-object -w "$evidence")"
 index="$(mktemp)"
@@ -58,25 +61,23 @@ test "$(git ls-remote --refs origin "$retained_ref" | cut -f1)" = "$commit"
 # shared ref backward. force-with-lease closes the read/compare/write race.
 read_run_tuple() {
   local current_commit="$1"
-  local paths path
-  paths="$(git ls-tree -r --name-only "$current_commit")"
-  test -n "$paths"
-  [[ "$paths" != *$'\n'* ]]
-  path="$paths"
-  [[ "$path" =~ ^vercel/[a-f0-9]{40}\.json$ ]]
-  git show "$current_commit:$path" | node -e '
-    let body = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => { body += chunk; });
-    process.stdin.on("end", () => {
-      const proof = JSON.parse(body);
-      const runId = proof?.provenance?.runId;
-      const attempt = proof?.provenance?.runAttempt;
-      const validRunId = /^[1-9][0-9]*$/.test(String(runId)) && BigInt(runId) <= 9223372036854775807n;
-      if (!validRunId || !Number.isSafeInteger(attempt) || attempt < 1) process.exit(1);
-      process.stdout.write(`${runId} ${attempt}\n`);
-    });
-  '
+  local commit_line top path entry candidate
+  commit_line="$(git rev-list --parents -n 1 "$current_commit")"
+  [[ "$commit_line" = "$current_commit" ]]
+
+  top="$(git ls-tree --name-only "$current_commit")"
+  [[ "$top" = "vercel" ]]
+  [[ "$(git cat-file -t "$current_commit:vercel")" = "tree" ]]
+
+  path="$(git ls-tree --name-only "$current_commit:vercel")"
+  test -n "$path"
+  [[ "$path" != *$'\n'* ]]
+  [[ "$path" =~ ^[a-f0-9]{40}\.json$ ]]
+  entry="$(git ls-tree "$current_commit:vercel")"
+  [[ "$entry" =~ ^100644\ blob\ [a-f0-9]{40}$'\t'[a-f0-9]{40}\.json$ ]]
+  candidate="${path%.json}"
+
+  git show "$current_commit:vercel/$path" | node "$script_dir/validate-vercel-evidence.mjs" "$candidate"
 }
 
 for _ in 1 2 3 4 5 6 7 8; do
