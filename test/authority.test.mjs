@@ -166,16 +166,21 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
   assert.doesNotMatch(publisher, /git push --force origin "\$commit:\$legacy_ref"/);
 });
 
-test("legacy publisher rejects run identities that overflow Bash arithmetic", () => {
-  assert.throws(() => execFileSync("bash", [resolve("scripts/publish-vercel-evidence.sh")], {
-    env: {
-      ...process.env,
-      CANDIDATE_SHA: "4".repeat(40),
-      GITHUB_RUN_ID: "9223372036854775808",
-      GITHUB_RUN_ATTEMPT: "1",
-    },
-    stdio: "pipe",
-  }));
+test("legacy publisher rejects run identities that overflow either arithmetic domain", () => {
+  for (const [runId, attempt] of [
+    ["9223372036854775808", "1"],
+    ["1", "9007199254740992"],
+  ]) {
+    assert.throws(() => execFileSync("bash", [resolve("scripts/publish-vercel-evidence.sh")], {
+      env: {
+        ...process.env,
+        CANDIDATE_SHA: "4".repeat(40),
+        GITHUB_RUN_ID: runId,
+        GITHUB_RUN_ATTEMPT: attempt,
+      },
+      stdio: "pipe",
+    }));
+  }
 });
 
 test("legacy compatibility ref cannot roll back when an older run finishes late", async () => {
@@ -195,8 +200,23 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
       await mkdir(resolve(work, "out"), { recursive: true });
       await writeFile(resolve(work, "out", `vercel-${sha}.json`), `${JSON.stringify({
         schemaVersion: 1,
+        authority: "raven-singh-ai/fift-release-authority",
         candidateSha: sha,
-        provenance: { runId: String(runId), runAttempt: attempt },
+        deployment: {
+          id: `dpl_Run${runId}`,
+          readyState: "READY",
+          url: "fift-preview.vercel.app",
+          team: { id: teamId, name: "Fift Studio", slug: "fift" },
+          project: { id: projectId, name: "fift-trading-portal" },
+          meta: { gitCommitSha: sha },
+        },
+        provenance: {
+          repository: "raven-singh-ai/fift-release-authority",
+          workflowRef: "raven-singh-ai/fift-release-authority/.github/workflows/verify-vercel.yml@refs/heads/main",
+          workflowSha: "9".repeat(40),
+          runId: String(runId),
+          runAttempt: attempt,
+        },
       })}\n`);
       execFileSync("bash", [publisher], {
         cwd: work,
@@ -219,7 +239,32 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
     await publish("5".repeat(40), 300, 2);
     run(["fetch", "--no-tags", "origin", "refs/heads/evidence"]);
     const advancedProof = JSON.parse(run(["show", `FETCH_HEAD:vercel/${"5".repeat(40)}.json`]));
-    assert.deepEqual(advancedProof.provenance, { runId: "300", runAttempt: 2 });
+    assert.equal(advancedProof.provenance.runId, "300");
+    assert.equal(advancedProof.provenance.runAttempt, 2);
+
+    const malformedSha = "3".repeat(40);
+    const malformedFile = resolve(work, `malformed-${malformedSha}.json`);
+    await writeFile(malformedFile, `${JSON.stringify({ provenance: { runId: "999", runAttempt: 1 } })}\n`);
+    const malformedBlob = run(["hash-object", "-w", malformedFile]);
+    const malformedIndex = resolve(root, "malformed.index");
+    const indexEnv = { ...process.env, GIT_INDEX_FILE: malformedIndex };
+    run(["read-tree", "--empty"], { env: indexEnv });
+    run(["update-index", "--add", "--cacheinfo", `100644,${malformedBlob},vercel/${malformedSha}.json`], { env: indexEnv });
+    const malformedTree = run(["write-tree"], { env: indexEnv });
+    const identityEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "test",
+      GIT_AUTHOR_EMAIL: "test@example.invalid",
+      GIT_COMMITTER_NAME: "test",
+      GIT_COMMITTER_EMAIL: "test@example.invalid",
+    };
+    const malformedCommit = run(["commit-tree", malformedTree], { env: identityEnv, input: "malformed\n" });
+    run(["push", "--force", "origin", `${malformedCommit}:refs/heads/evidence`]);
+
+    const rejectedSha = "2".repeat(40);
+    await assert.rejects(publish(rejectedSha, 400, 1));
+    assert.equal(run(["ls-remote", "--refs", "origin", "refs/heads/evidence"]).split("\t")[0], malformedCommit);
+    assert.equal(run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${rejectedSha}/run-400-attempt-1`]).length > 0, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
