@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { access, readFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const candidateSha = "8".repeat(40);
@@ -144,6 +146,7 @@ for (const [label, fetchResult, error] of [
 
 test("workflow is manual-only, pinned, and retains every parentless proof", async () => {
   const workflow = await readFile(resolve(".github/workflows/verify-vercel.yml"), "utf8");
+  const publisher = await readFile(resolve("scripts/publish-vercel-evidence.sh"), "utf8");
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /pull_request(?:_target)?:|\bpush:/);
   assert.match(workflow, /permissions:\n  contents: read\n  id-token: write\n  attestations: write/);
@@ -151,11 +154,59 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
   assert.match(workflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
   assert.match(workflow, /token: \$\{\{ secrets\.AUTHORITY_GITHUB_TOKEN \}\}/);
   assert.match(workflow, /actions\/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be/);
-  assert.match(workflow, /git read-tree --empty/);
-  assert.match(workflow, /git commit-tree "\$tree"/);
-  assert.doesNotMatch(workflow, /git commit-tree[^\n]* -p /);
-  assert.match(workflow, /refs\/heads\/evidence-vercel\/\$\{CANDIDATE_SHA\}\/run-\$\{GITHUB_RUN_ID\}-attempt-\$\{GITHUB_RUN_ATTEMPT\}/);
-  assert.match(workflow, /git push origin "\$commit:\$retained_ref"/);
-  assert.match(workflow, /git push --force origin "\$commit:refs\/heads\/evidence"/);
-  assert.ok(workflow.indexOf("$commit:$retained_ref") < workflow.indexOf("$commit:refs/heads/evidence"));
+  assert.match(workflow, /run: bash scripts\/publish-vercel-evidence\.sh/);
+  assert.match(publisher, /git read-tree --empty/);
+  assert.match(publisher, /git commit-tree "\$tree"/);
+  assert.doesNotMatch(publisher, /git commit-tree[^\n]* -p /);
+  assert.match(publisher, /refs\/heads\/evidence-vercel\/\$\{CANDIDATE_SHA\}\/run-\$\{GITHUB_RUN_ID\}-attempt-\$\{GITHUB_RUN_ATTEMPT\}/);
+  assert.match(publisher, /git push origin "\$commit:\$retained_ref"/);
+  assert.match(publisher, /--force-with-lease="\$legacy_ref:\$current"/);
+  assert.doesNotMatch(publisher, /git push --force origin "\$commit:\$legacy_ref"/);
+});
+
+test("legacy compatibility ref cannot roll back when an older run finishes late", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "fift-authority-race-"));
+  const remote = resolve(root, "remote.git");
+  const work = resolve(root, "work");
+  const publisher = resolve("scripts/publish-vercel-evidence.sh");
+  const run = (args, options = {}) => execFileSync("git", args, { cwd: work, encoding: "utf8", ...options }).trim();
+  try {
+    execFileSync("git", ["init", "--bare", remote], { stdio: "ignore" });
+    execFileSync("git", ["init", work], { stdio: "ignore" });
+    run(["config", "user.name", "test"]);
+    run(["config", "user.email", "test@example.invalid"]);
+    run(["remote", "add", "origin", remote]);
+
+    const publish = async (sha, runId, attempt) => {
+      await mkdir(resolve(work, "out"), { recursive: true });
+      await writeFile(resolve(work, "out", `vercel-${sha}.json`), `${JSON.stringify({
+        schemaVersion: 1,
+        candidateSha: sha,
+        provenance: { runId: String(runId), runAttempt: attempt },
+      })}\n`);
+      execFileSync("bash", [publisher], {
+        cwd: work,
+        env: { ...process.env, CANDIDATE_SHA: sha, GITHUB_RUN_ID: String(runId), GITHUB_RUN_ATTEMPT: String(attempt) },
+        stdio: "pipe",
+      });
+    };
+
+    const olderSha = "6".repeat(40);
+    const newerSha = "7".repeat(40);
+    await publish(newerSha, 200, 1);
+    await publish(olderSha, 100, 1);
+
+    run(["fetch", "--no-tags", "origin", "refs/heads/evidence"]);
+    const finalProof = JSON.parse(run(["show", `FETCH_HEAD:vercel/${newerSha}.json`]));
+    assert.equal(finalProof.provenance.runId, "200");
+    assert.equal(run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${newerSha}/run-200-attempt-1`]).length > 0, true);
+    assert.equal(run(["ls-remote", "--refs", "origin", `refs/heads/evidence-vercel/${olderSha}/run-100-attempt-1`]).length > 0, true);
+
+    await publish("5".repeat(40), 300, 2);
+    run(["fetch", "--no-tags", "origin", "refs/heads/evidence"]);
+    const advancedProof = JSON.parse(run(["show", `FETCH_HEAD:vercel/${"5".repeat(40)}.json`]));
+    assert.deepEqual(advancedProof.provenance, { runId: "300", runAttempt: 2 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
