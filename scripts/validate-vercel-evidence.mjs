@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
-const [candidateSha, expectedRunId = "", expectedRunAttempt = ""] = process.argv.slice(2);
+import { validApplicationAccess } from "./application-access.mjs";
+
+const args = process.argv.slice(2);
+const allowLegacy = args.at(-1) === "--allow-legacy";
+if (allowLegacy) args.pop();
+const [candidateSha, expectedRunId = "", expectedRunAttempt = ""] = args;
 const authority = "raven-singh-ai/fift-release-authority";
 const workflowRef = `${authority}/.github/workflows/verify-vercel.yml@refs/heads/main`;
 const maxRunId = 9223372036854775807n;
@@ -15,7 +20,7 @@ function fail() {
   process.exit(1);
 }
 
-if (!/^[a-f0-9]{40}$/.test(candidateSha)) fail();
+if (args.length > 3 || !/^[a-f0-9]{40}$/.test(candidateSha)) fail();
 let body = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { body += chunk; });
@@ -27,9 +32,11 @@ process.stdin.on("end", () => {
     fail();
   }
 
+  const legacy = allowLegacy && proof?.schemaVersion === 1;
   if (`${JSON.stringify(proof)}\n` !== body
-    || !exactKeys(proof, ["schemaVersion", "authority", "candidateSha", "deployment", "provenance"])
-    || proof.schemaVersion !== 1
+    || !exactKeys(proof, legacy ? ["schemaVersion", "authority", "candidateSha", "deployment", "provenance"]
+      : ["schemaVersion", "authority", "candidateSha", "deployment", "applicationAccess", "provenance"])
+    || (!legacy && proof.schemaVersion !== 2)
     || proof.authority !== authority
     || proof.candidateSha !== candidateSha
     || !exactKeys(proof.deployment, ["id", "readyState", "url", "team", "project", "meta"])
@@ -45,6 +52,7 @@ process.stdin.on("end", () => {
     || proof.deployment.project.name !== "fift-trading-portal"
     || !exactKeys(proof.deployment.meta, ["gitCommitSha"])
     || proof.deployment.meta.gitCommitSha !== candidateSha
+    || (!legacy && !validApplicationAccess(proof.applicationAccess, `https://${proof.deployment.url}`))
     || !exactKeys(proof.provenance, ["repository", "workflowRef", "workflowSha", "runId", "runAttempt"])
     || proof.provenance.repository !== authority
     || proof.provenance.workflowRef !== workflowRef

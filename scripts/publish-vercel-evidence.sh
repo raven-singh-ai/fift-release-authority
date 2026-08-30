@@ -77,7 +77,7 @@ read_run_tuple() {
   [[ "$entry" =~ ^100644\ blob\ [a-f0-9]{40}$'\t'[a-f0-9]{40}\.json$ ]] || return 1
   candidate="${path%.json}"
 
-  git show "$current_commit:vercel/$path" | node "$script_dir/validate-vercel-evidence.mjs" "$candidate"
+  git show "$current_commit:vercel/$path" | node "$script_dir/validate-vercel-evidence.mjs" "$candidate" --allow-legacy
 }
 
 for _ in 1 2 3 4 5 6 7 8; do
