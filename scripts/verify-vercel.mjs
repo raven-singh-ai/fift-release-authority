@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { probeApplicationAccess } from "./application-access.mjs";
 
 const exactSha = process.env.CANDIDATE_SHA ?? "";
 const deploymentId = process.env.DEPLOYMENT_ID ?? "";
@@ -56,8 +57,11 @@ if (raw?.id !== deploymentId
   throw new Error("Vercel provider metadata is not bound to the requested exact SHA");
 }
 
+// No provider token or cookie enters this probe. Run only after the exact
+// deployment/team/project/SHA binding above, then attest the same bounded bytes.
+const applicationAccess = await probeApplicationAccess(`https://${expectedHostname}`);
 const evidence = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   authority: "raven-singh-ai/fift-release-authority",
   candidateSha: exactSha,
   deployment: {
@@ -71,6 +75,7 @@ const evidence = {
     // exactSha, so this cannot conceal disagreement.
     meta: { gitCommitSha: exactSha },
   },
+  applicationAccess,
   provenance: {
     repository: process.env.GITHUB_REPOSITORY,
     workflowRef: process.env.GITHUB_WORKFLOW_REF,

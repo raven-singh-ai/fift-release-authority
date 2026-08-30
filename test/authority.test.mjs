@@ -22,6 +22,7 @@ process.env.GITHUB_RUN_ID = "12345";
 process.env.GITHUB_RUN_ATTEMPT = "1";
 
 globalThis.fetch = async (url, options) => {
+  if (url.startsWith(`https://${hostname}/`)) return applicationResponse(url, options);
   assert.equal(
     url,
     `https://api.vercel.com/v13/deployments/${deploymentId}?teamId=team_6AFb0Io4tNAZE5RQPtdLOEWv`,
@@ -50,7 +51,9 @@ test("projects only bounded provider fields into attested evidence", async () =>
   await import(`../scripts/verify-vercel.mjs?test=${Date.now()}`);
   const bytes = await readFile(resolve("out", `vercel-${candidateSha}.json`), "utf8");
   const evidence = JSON.parse(bytes);
-  assert.deepEqual(Object.keys(evidence).sort(), ["authority", "candidateSha", "deployment", "provenance", "schemaVersion"]);
+  assert.deepEqual(Object.keys(evidence).sort(), ["applicationAccess", "authority", "candidateSha", "deployment", "provenance", "schemaVersion"]);
+  assert.equal(evidence.schemaVersion, 2);
+  assert.deepEqual(evidence.applicationAccess, applicationEvidence());
   assert.deepEqual(evidence.deployment, {
     id: deploymentId,
     readyState: "READY",
@@ -64,7 +67,7 @@ test("projects only bounded provider fields into attested evidence", async () =>
 });
 
 test("accepts GitHub-integration SHA fields and emits the canonical binding", async () => {
-  globalThis.fetch = async () => ({
+  globalThis.fetch = async (url, options) => url.startsWith(`https://${hostname}/`) ? applicationResponse(url, options) : ({
     ok: true,
     async json() {
       const raw = validProviderPayload();
@@ -82,6 +85,26 @@ test("accepts GitHub-integration SHA fields and emits the canonical binding", as
   assert.equal(bytes.includes("private"), false);
 });
 
+test("does not create evidence when the exact application's anonymous access proof fails", async () => {
+  let providerReads = 0;
+  let applicationReads = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.startsWith("https://api.vercel.com/")) { providerReads++; return { ok: true, async json() { return validProviderPayload(); } }; }
+    assert.equal(providerReads, 1);
+    applicationReads++;
+    if (url.endsWith("/dashboard")) {
+      const response = new Response("private data must not be retained", { status: 200 });
+      Object.defineProperty(response, "url", { value: url });
+      return response;
+    }
+    return applicationResponse(url, options);
+  };
+  await rm(resolve("out"), { recursive: true, force: true });
+  await assert.rejects(import(`../scripts/verify-vercel.mjs?access-denied=${Date.now()}`), /application_access_redirect_invalid/);
+  assert.equal(applicationReads, 2);
+  await assert.rejects(access(resolve("out", `vercel-${candidateSha}.json`)), { code: "ENOENT" });
+});
+
 function validProviderPayload() {
   return {
     id: deploymentId,
@@ -93,6 +116,27 @@ function validProviderPayload() {
     project: { id: projectId, name: "fift-trading-portal" },
     meta: { gitCommitSha: candidateSha },
   };
+}
+
+function applicationEvidence() {
+  return { contract: "fift-application-access.v1", origin: `https://${hostname}`, credentialMode: "omit",
+    login: { path: "/login", status: 200, emailField: true, passwordField: true },
+    pages: ["/dashboard", "/admin", "/accounts"].map(path => ({ path, status: 307, loginPath: "/login" })),
+    endpoints: ["/api/cron/tradequo-source-preflight", "/api/mobile/partner/rebate-summary"].map(path => ({ path, status: 401 })) };
+}
+
+function applicationResponse(url, options) {
+  assert.equal(options.credentials, "omit");
+  assert.equal(options.redirect, "manual");
+  assert.deepEqual(options.headers, { Accept: url.includes("/api/") ? "application/json" : "text/html", "Cache-Control": "no-store" });
+  assert.equal(JSON.stringify(options).includes("unit-secret"), false);
+  const path = new URL(url).pathname;
+  const response = path === "/login"
+    ? new Response('<html><form><input type="email" name="email"><input type="password" name="password"></form></html>', { status: 200, headers: { "Content-Type": "text/html", "Set-Cookie": "must-never-be-replayed=secret" } })
+    : path.startsWith("/api/") ? new Response(null, { status: 401 })
+      : new Response(null, { status: 307, headers: { Location: `/login?next=${encodeURIComponent(path)}` } });
+  Object.defineProperty(response, "url", { value: url });
+  return response;
 }
 
 const hostileProviderMutations = [
@@ -168,7 +212,7 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
 
 test("canonical validator rejects numeric run IDs instead of coercing them", () => {
   const proof = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     authority: "raven-singh-ai/fift-release-authority",
     candidateSha,
     deployment: {
@@ -179,6 +223,7 @@ test("canonical validator rejects numeric run IDs instead of coercing them", () 
       project: { id: projectId, name: "fift-trading-portal" },
       meta: { gitCommitSha: candidateSha },
     },
+    applicationAccess: applicationEvidence(),
     provenance: {
       repository: "raven-singh-ai/fift-release-authority",
       workflowRef: "raven-singh-ai/fift-release-authority/.github/workflows/verify-vercel.yml@refs/heads/main",
@@ -226,7 +271,7 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
     const publish = async (sha, runId, attempt) => {
       await mkdir(resolve(work, "out"), { recursive: true });
       await writeFile(resolve(work, "out", `vercel-${sha}.json`), `${JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         authority: "raven-singh-ai/fift-release-authority",
         candidateSha: sha,
         deployment: {
@@ -237,6 +282,7 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
           project: { id: projectId, name: "fift-trading-portal" },
           meta: { gitCommitSha: sha },
         },
+        applicationAccess: applicationEvidence(),
         provenance: {
           repository: "raven-singh-ai/fift-release-authority",
           workflowRef: "raven-singh-ai/fift-release-authority/.github/workflows/verify-vercel.yml@refs/heads/main",
