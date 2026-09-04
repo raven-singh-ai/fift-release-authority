@@ -15,6 +15,7 @@ process.env.CANDIDATE_SHA = candidateSha;
 process.env.DEPLOYMENT_ID = deploymentId;
 process.env.EXPECTED_HOSTNAME = hostname;
 process.env.VERCEL_TOKEN = "unit-secret";
+process.env.VERCEL_PROTECTION_AUTOMATION_SECRET = "a".repeat(32);
 process.env.GITHUB_REPOSITORY = "raven-singh-ai/fift-release-authority";
 process.env.GITHUB_WORKFLOW_REF = "raven-singh-ai/fift-release-authority/.github/workflows/verify-vercel.yml@refs/heads/main";
 process.env.GITHUB_SHA = "9".repeat(40);
@@ -52,7 +53,7 @@ test("projects only bounded provider fields into attested evidence", async () =>
   const bytes = await readFile(resolve("out", `vercel-${candidateSha}.json`), "utf8");
   const evidence = JSON.parse(bytes);
   assert.deepEqual(Object.keys(evidence).sort(), ["applicationAccess", "authority", "candidateSha", "deployment", "provenance", "schemaVersion"]);
-  assert.equal(evidence.schemaVersion, 2);
+  assert.equal(evidence.schemaVersion, 3);
   assert.deepEqual(evidence.applicationAccess, applicationEvidence());
   assert.deepEqual(evidence.deployment, {
     id: deploymentId,
@@ -119,7 +120,7 @@ function validProviderPayload() {
 }
 
 function applicationEvidence() {
-  return { contract: "fift-application-access.v1", origin: `https://${hostname}`, credentialMode: "omit",
+  return { contract: "fift-application-access.v2", origin: `https://${hostname}`, credentialMode: "omit", gatewayAuthorization: "vercel-automation",
     login: { path: "/login", status: 200, emailField: true, passwordField: true },
     pages: ["/dashboard", "/admin", "/accounts"].map(path => ({ path, status: 307, loginPath: "/login" })),
     endpoints: ["/api/cron/tradequo-source-preflight", "/api/mobile/partner/rebate-summary"].map(path => ({ path, status: 401 })) };
@@ -128,7 +129,7 @@ function applicationEvidence() {
 function applicationResponse(url, options) {
   assert.equal(options.credentials, "omit");
   assert.equal(options.redirect, "manual");
-  assert.deepEqual(options.headers, { Accept: url.includes("/api/") ? "application/json" : "text/html", "Cache-Control": "no-store" });
+  assert.deepEqual(options.headers, { Accept: url.includes("/api/") ? "application/json" : "text/html", "Cache-Control": "no-store", "x-vercel-protection-bypass": "a".repeat(32) });
   assert.equal(JSON.stringify(options).includes("unit-secret"), false);
   const path = new URL(url).pathname;
   const response = path === "/login"
@@ -212,7 +213,7 @@ test("workflow is manual-only, pinned, and retains every parentless proof", asyn
 
 test("canonical validator rejects numeric run IDs instead of coercing them", () => {
   const proof = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     authority: "raven-singh-ai/fift-release-authority",
     candidateSha,
     deployment: {
@@ -271,7 +272,7 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
     const publish = async (sha, runId, attempt) => {
       await mkdir(resolve(work, "out"), { recursive: true });
       await writeFile(resolve(work, "out", `vercel-${sha}.json`), `${JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         authority: "raven-singh-ai/fift-release-authority",
         candidateSha: sha,
         deployment: {

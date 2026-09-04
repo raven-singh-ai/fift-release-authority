@@ -17,11 +17,14 @@ function exactOrigin(value) {
 const exactKeys = (value, keys) => value !== null && typeof value === "object" && !Array.isArray(value)
   && JSON.stringify(Object.keys(value)) === JSON.stringify(keys);
 
-export function validApplicationAccess(value, origin) {
+export function validApplicationAccess(value, origin, { allowLegacy = false } = {}) {
   try {
     exactOrigin(origin);
-    return exactKeys(value, ["contract", "origin", "credentialMode", "login", "pages", "endpoints"])
-      && value.contract === "fift-application-access.v1" && value.origin === origin && value.credentialMode === "omit"
+    const legacy = allowLegacy && value?.contract === "fift-application-access.v1";
+    return exactKeys(value, legacy ? ["contract", "origin", "credentialMode", "login", "pages", "endpoints"]
+      : ["contract", "origin", "credentialMode", "gatewayAuthorization", "login", "pages", "endpoints"])
+      && (legacy || (value.contract === "fift-application-access.v2" && value.gatewayAuthorization === "vercel-automation"))
+      && value.origin === origin && value.credentialMode === "omit"
       && exactKeys(value.login, ["path", "status", "emailField", "passwordField"])
       && value.login.path === "/login" && value.login.status === 200 && value.login.emailField === true && value.login.passwordField === true
       && Array.isArray(value.pages) && value.pages.length === PAGE_PATHS.length
@@ -104,8 +107,9 @@ async function loginBody(response, signal) {
   } finally { signal.removeEventListener("abort", cancel); cancel(); }
 }
 
-export async function probeApplicationAccess(origin, { fetchImpl = globalThis.fetch, timeoutMs = 20_000 } = {}) {
+export async function probeApplicationAccess(origin, { fetchImpl = globalThis.fetch, timeoutMs = 20_000, gatewaySecret } = {}) {
   exactOrigin(origin);
+  if (typeof gatewaySecret !== "string" || !/^[a-f0-9]{32}$/.test(gatewaySecret)) fail("gateway_authorization_missing");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 20_000) fail("deadline_invalid");
   const controller = new AbortController();
   let timer;
@@ -116,7 +120,8 @@ export async function probeApplicationAccess(origin, { fetchImpl = globalThis.fe
     controller.signal.throwIfAborted();
     const response = await fetchImpl(origin + path, {
       method: "GET", credentials: "omit", redirect: "manual", cache: "no-store", signal: controller.signal,
-      headers: { Accept: path.startsWith("/api/") ? "application/json" : "text/html", "Cache-Control": "no-store" },
+      headers: { Accept: path.startsWith("/api/") ? "application/json" : "text/html", "Cache-Control": "no-store",
+        "x-vercel-protection-bypass": gatewaySecret },
     });
     if (controller.signal.aborted) { discard(response); controller.signal.throwIfAborted(); }
     if (response.redirected || response.url !== origin + path) { discard(response); fail("response_origin_invalid"); }
@@ -150,7 +155,7 @@ export async function probeApplicationAccess(origin, { fetchImpl = globalThis.fe
       } finally { discard(response); }
     }
     controller.signal.throwIfAborted();
-    return { contract: "fift-application-access.v1", origin, credentialMode: "omit",
+    return { contract: "fift-application-access.v2", origin, credentialMode: "omit", gatewayAuthorization: "vercel-automation",
       login: { path: "/login", status: 200, emailField: true, passwordField: true }, pages, endpoints };
   };
   try { return await Promise.race([work(), deadline]); }

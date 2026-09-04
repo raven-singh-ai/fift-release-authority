@@ -33,10 +33,11 @@ process.stdin.on("end", () => {
   }
 
   const legacy = allowLegacy && proof?.schemaVersion === 1;
+  const legacyApplication = allowLegacy && proof?.schemaVersion === 2;
   if (`${JSON.stringify(proof)}\n` !== body
     || !exactKeys(proof, legacy ? ["schemaVersion", "authority", "candidateSha", "deployment", "provenance"]
       : ["schemaVersion", "authority", "candidateSha", "deployment", "applicationAccess", "provenance"])
-    || (!legacy && proof.schemaVersion !== 2)
+    || (!legacy && !legacyApplication && proof.schemaVersion !== 3)
     || proof.authority !== authority
     || proof.candidateSha !== candidateSha
     || !exactKeys(proof.deployment, ["id", "readyState", "url", "team", "project", "meta"])
@@ -52,7 +53,7 @@ process.stdin.on("end", () => {
     || proof.deployment.project.name !== "fift-trading-portal"
     || !exactKeys(proof.deployment.meta, ["gitCommitSha"])
     || proof.deployment.meta.gitCommitSha !== candidateSha
-    || (!legacy && !validApplicationAccess(proof.applicationAccess, `https://${proof.deployment.url}`))
+    || (!legacy && !validApplicationAccess(proof.applicationAccess, `https://${proof.deployment.url}`, { allowLegacy: legacyApplication }))
     || !exactKeys(proof.provenance, ["repository", "workflowRef", "workflowSha", "runId", "runAttempt"])
     || proof.provenance.repository !== authority
     || proof.provenance.workflowRef !== workflowRef
