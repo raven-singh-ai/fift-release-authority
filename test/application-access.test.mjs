@@ -16,7 +16,31 @@ function success(url) {
     : path.startsWith("/api/") ? response(url, { status: 401 })
       : response(url, { status: 307, headers: { location: `/login?next=${encodeURIComponent(path)}` } });
 }
-const probe = (fetchImpl, options = {}) => probeApplicationAccess(origin, { fetchImpl, ...options });
+const gatewaySecret = "a".repeat(32);
+const probe = (fetchImpl, options = {}) => probeApplicationAccess(origin, { fetchImpl, gatewaySecret, ...options });
+
+test("gateway credential is header-only, origin-bound, and never retained in proof", async () => {
+  const result = await probe(async (url, options) => {
+    assert.equal(new URL(url).origin, origin);
+    assert.equal(new URL(url).search, "");
+    assert.equal(options.headers["x-vercel-protection-bypass"], gatewaySecret);
+    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.headers.Cookie, undefined);
+    assert.equal(options.redirect, "manual");
+    return success(url);
+  });
+  assert.equal(result.gatewayAuthorization, "vercel-automation");
+  assert.equal(JSON.stringify(result).includes(gatewaySecret), false);
+  const forged = structuredClone(result); forged.gatewayAuthorization = "app-session";
+  assert.equal(validApplicationAccess(forged, origin), false);
+});
+for (const gatewaySecret of [undefined, "", "a".repeat(31), "Bearer secret", "a".repeat(32)+"\n"]) {
+  test(`rejects malformed gateway credential of length ${gatewaySecret?.length}`, async () => {
+    let calls=0;
+    await assert.rejects(probe(async () => { calls++; }, { gatewaySecret }), /application_access_gateway_authorization_missing/);
+    assert.equal(calls,0);
+  });
+}
 
 test("proves the exact six paths anonymously and retains no bodies, cookies or credential headers", async () => {
   const requests = [];
@@ -25,7 +49,7 @@ test("proves the exact six paths anonymously and retains no bodies, cookies or c
     assert.equal(options.credentials, "omit");
     assert.equal(options.redirect, "manual");
     assert.equal(options.cache, "no-store");
-    assert.deepEqual(Object.keys(options.headers).sort(), ["Accept", "Cache-Control"]);
+    assert.deepEqual(Object.keys(options.headers).sort(), ["Accept", "Cache-Control", "x-vercel-protection-bypass"]);
     assert.equal(options.signal.aborted, false);
     requests.push(url);
     return success(url);

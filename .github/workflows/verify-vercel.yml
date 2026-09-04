@@ -38,6 +38,7 @@ jobs:
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           EXPECTED_HOSTNAME: ${{ inputs.expected_hostname }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROTECTION_AUTOMATION_SECRET: ${{ secrets.VERCEL_PROTECTION_AUTOMATION_SECRET }}
         run: node scripts/verify-vercel.mjs
 
       - name: Attest exact evidence bytes with GitHub OIDC

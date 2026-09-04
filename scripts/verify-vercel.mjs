@@ -57,11 +57,14 @@ if (raw?.id !== deploymentId
   throw new Error("Vercel provider metadata is not bound to the requested exact SHA");
 }
 
-// No provider token or cookie enters this probe. Run only after the exact
-// deployment/team/project/SHA binding above, then attest the same bounded bytes.
-const applicationAccess = await probeApplicationAccess(`https://${expectedHostname}`);
+// Only the dedicated Vercel gateway credential enters the exact bound origin.
+// No Vercel API token, FIFT bearer, cookie or user session enters the app probe.
+// Redirects remain manual so the gateway credential cannot follow another host.
+const applicationAccess = await probeApplicationAccess(`https://${expectedHostname}`, {
+  gatewaySecret: process.env.VERCEL_PROTECTION_AUTOMATION_SECRET,
+});
 const evidence = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   authority: "raven-singh-ai/fift-release-authority",
   candidateSha: exactSha,
   deployment: {

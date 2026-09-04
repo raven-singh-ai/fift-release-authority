@@ -7,11 +7,11 @@ import test from "node:test";
 const sha = "8".repeat(40);
 const origin = "https://fift-preview.vercel.app";
 function proof() {
-  return { schemaVersion: 2, authority: "raven-singh-ai/fift-release-authority", candidateSha: sha,
+  return { schemaVersion: 3, authority: "raven-singh-ai/fift-release-authority", candidateSha: sha,
     deployment: { id: "dpl_Trusted123", readyState: "READY", url: "fift-preview.vercel.app",
       team: { id: "team_6AFb0Io4tNAZE5RQPtdLOEWv", name: "Fift Studio", slug: "fift" },
       project: { id: "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr", name: "fift-trading-portal" }, meta: { gitCommitSha: sha } },
-    applicationAccess: { contract: "fift-application-access.v1", origin, credentialMode: "omit",
+    applicationAccess: { contract: "fift-application-access.v2", origin, credentialMode: "omit", gatewayAuthorization: "vercel-automation",
       login: { path: "/login", status: 200, emailField: true, passwordField: true },
       pages: ["/dashboard", "/admin", "/accounts"].map(path => ({ path, status: 307, loginPath: "/login" })),
       endpoints: ["/api/cron/tradequo-source-preflight", "/api/mobile/partner/rebate-summary"].map(path => ({ path, status: 401 })) },
@@ -53,4 +53,14 @@ test("publisher permits legacy schema only while reading the existing shared-ref
   assert.match(publisher, /node "\$script_dir\/validate-vercel-evidence\.mjs" "\$CANDIDATE_SHA" "\$GITHUB_RUN_ID" "\$GITHUB_RUN_ATTEMPT" < "\$evidence"/);
   assert.equal(publisher.match(/--allow-legacy/g)?.length, 1);
   assert.match(publisher, /git show "\$current_commit:vercel\/\$path" \| node "\$script_dir\/validate-vercel-evidence\.mjs" "\$candidate" --allow-legacy/);
+});
+
+test("schema2 anonymous history remains readable but cannot authorize new publication", () => {
+  const legacy=proof(); legacy.schemaVersion=2;
+  legacy.applicationAccess.contract="fift-application-access.v1";
+  delete legacy.applicationAccess.gatewayAuthorization;
+  assert.throws(() => validate(legacy));
+  assert.equal(validate(legacy,["--allow-legacy"]),"12345 1\n");
+  legacy.applicationAccess.pages[0].status=200;
+  assert.throws(() => validate(legacy,["--allow-legacy"]));
 });
