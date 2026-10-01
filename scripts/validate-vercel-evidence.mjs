@@ -50,7 +50,10 @@ process.stdin.on("end", () => {
     || proof.deployment.team.slug !== "fift"
     || !exactKeys(proof.deployment.project, ["id", "name"])
     || proof.deployment.project.id !== "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr"
-    || proof.deployment.project.name !== "fift-studio"
+    // The project was renamed fift-trading-portal -> fift-studio (~22 Sep 2026). New evidence must carry the new name;
+    // an already-published proof read back with --allow-legacy may carry the name it was minted under.
+    || (proof.deployment.project.name !== "fift-studio"
+      && !(allowLegacy && proof.deployment.project.name === "fift-trading-portal"))
     || !exactKeys(proof.deployment.meta, ["gitCommitSha"])
     || proof.deployment.meta.gitCommitSha !== candidateSha
     || (!legacy && !validApplicationAccess(proof.applicationAccess, `https://${proof.deployment.url}`, { allowLegacy: legacyApplication }))
