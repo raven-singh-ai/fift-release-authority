@@ -10,7 +10,7 @@ const teamId = "team_6AFb0Io4tNAZE5RQPtdLOEWv";
 const teamName = "Fift Studio";
 const teamSlug = "fift";
 const projectId = "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr";
-const projectName = "fift-trading-portal";
+const projectName = "fift-studio"; // renamed in Vercel ~22 Sep 2026; the project ID pin above is unchanged
 
 if (!/^[a-f0-9]{40}$/.test(exactSha)) throw new Error("candidate SHA must be exact");
 if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) throw new Error("deployment ID is invalid");

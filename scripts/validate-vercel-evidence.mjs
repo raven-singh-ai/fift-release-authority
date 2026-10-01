@@ -50,7 +50,7 @@ process.stdin.on("end", () => {
     || proof.deployment.team.slug !== "fift"
     || !exactKeys(proof.deployment.project, ["id", "name"])
     || proof.deployment.project.id !== "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr"
-    || proof.deployment.project.name !== "fift-trading-portal"
+    || proof.deployment.project.name !== "fift-studio"
     || !exactKeys(proof.deployment.meta, ["gitCommitSha"])
     || proof.deployment.meta.gitCommitSha !== candidateSha
     || (!legacy && !validApplicationAccess(proof.applicationAccess, `https://${proof.deployment.url}`, { allowLegacy: legacyApplication }))
