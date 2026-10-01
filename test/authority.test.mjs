@@ -39,7 +39,7 @@ globalThis.fetch = async (url, options) => {
         ownerId: teamId,
         team: { id: teamId, name: "Fift Studio", slug: "fift", private: "drop-me" },
         projectId,
-        project: { id: projectId, name: "fift-trading-portal", private: "drop-me" },
+        project: { id: projectId, name: "fift-studio", private: "drop-me" },
         meta: { gitCommitSha: candidateSha, privateProviderValue: "drop-me" },
         env: { SECRET: "drop-me" },
       };
@@ -60,7 +60,7 @@ test("projects only bounded provider fields into attested evidence", async () =>
     readyState: "READY",
     url: hostname,
     team: { id: teamId, name: "Fift Studio", slug: "fift" },
-    project: { id: projectId, name: "fift-trading-portal" },
+    project: { id: projectId, name: "fift-studio" },
     meta: { gitCommitSha: candidateSha },
   });
   assert.equal(bytes.includes("unit-secret"), false);
@@ -114,7 +114,7 @@ function validProviderPayload() {
     ownerId: teamId,
     team: { id: teamId, name: "Fift Studio", slug: "fift" },
     projectId,
-    project: { id: projectId, name: "fift-trading-portal" },
+    project: { id: projectId, name: "fift-studio" },
     meta: { gitCommitSha: candidateSha },
   };
 }
@@ -221,7 +221,7 @@ test("canonical validator rejects numeric run IDs instead of coercing them", () 
       readyState: "READY",
       url: hostname,
       team: { id: teamId, name: "Fift Studio", slug: "fift" },
-      project: { id: projectId, name: "fift-trading-portal" },
+      project: { id: projectId, name: "fift-studio" },
       meta: { gitCommitSha: candidateSha },
     },
     applicationAccess: applicationEvidence(),
@@ -280,7 +280,7 @@ test("legacy compatibility ref cannot roll back when an older run finishes late"
           readyState: "READY",
           url: "fift-preview.vercel.app",
           team: { id: teamId, name: "Fift Studio", slug: "fift" },
-          project: { id: projectId, name: "fift-trading-portal" },
+          project: { id: projectId, name: "fift-studio" },
           meta: { gitCommitSha: sha },
         },
         applicationAccess: applicationEvidence(),

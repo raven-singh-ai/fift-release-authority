@@ -10,7 +10,7 @@ function proof() {
   return { schemaVersion: 3, authority: "raven-singh-ai/fift-release-authority", candidateSha: sha,
     deployment: { id: "dpl_Trusted123", readyState: "READY", url: "fift-preview.vercel.app",
       team: { id: "team_6AFb0Io4tNAZE5RQPtdLOEWv", name: "Fift Studio", slug: "fift" },
-      project: { id: "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr", name: "fift-trading-portal" }, meta: { gitCommitSha: sha } },
+      project: { id: "prj_B4vmVkQj1gVcSl6ezVfUfw9poWXr", name: "fift-studio" }, meta: { gitCommitSha: sha } },
     applicationAccess: { contract: "fift-application-access.v2", origin, credentialMode: "omit", gatewayAuthorization: "vercel-automation",
       login: { path: "/login", status: 200, emailField: true, passwordField: true },
       pages: ["/dashboard", "/admin", "/accounts"].map(path => ({ path, status: 307, loginPath: "/login" })),
