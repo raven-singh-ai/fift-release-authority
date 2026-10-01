@@ -64,3 +64,14 @@ test("schema2 anonymous history remains readable but cannot authorize new public
   legacy.applicationAccess.pages[0].status=200;
   assert.throws(() => validate(legacy,["--allow-legacy"]));
 });
+
+test("renamed project: published proofs keep their minted name only when read back as legacy", () => {
+  const minted = proof(); minted.deployment.project.name = "fift-trading-portal";
+  assert.equal(validate(minted, ["--allow-legacy"]), "12345 1\n");
+  assert.throws(() => validate(minted, ["12345", "1"]));
+  const other = proof(); other.deployment.project.name = "someone-else";
+  assert.throws(() => validate(other, ["--allow-legacy"]));
+  assert.throws(() => validate(other, ["12345", "1"]));
+  const wrongId = proof(); wrongId.deployment.project = { id: "prj_Attacker000", name: "fift-trading-portal" };
+  assert.throws(() => validate(wrongId, ["--allow-legacy"]));
+});
